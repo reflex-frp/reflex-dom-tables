@@ -57,6 +57,7 @@ extra-doc-files:    CHANGELOG.md
 common warnings
     ghc-options: -Wall
                  -Wno-type-defaults
+                 -Wno-partial-type-signatures
                  -- unsafe code
                  -Wincomplete-record-updates -Werror=incomplete-record-updates
                  -Wincomplete-patterns -Werror=incomplete-patterns
@@ -87,6 +88,10 @@ library
                     , containers
                     , data-default
                     , indexed-traversable
+                    , higher-kinded
+                    , higher-kinded-instance-base
+                    , lens
+                    , mtl
                     , reflex-dom
                     , reflex-dom-attrs
 

@@ -1,22 +1,38 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Reflex.Dom.Tables where
 
+import Control.Lens (ALens', (#~))
 import Control.Monad
 import Control.Monad.Fix
+import Control.Monad.IO.Class
+import Control.Monad.Writer.Strict
 import Data.Default
 import Data.Foldable.WithIndex
+import Data.Functor.Const
+import Data.Functor.Identity
+import Data.Functor.Product
+import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, isNothing)
 import Data.Traversable
+import GHC.Generics ((:*:)(..))
+import HigherKinded
+import HigherKinded.Instance.F
 import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
@@ -267,4 +283,78 @@ tableStatic rows' cfg' = do
         }
   table <- tableDyn rows cfg
   sample $ current table
+
+
+
+type TableSortConfig row = HKD row F' (Const (Maybe Bool))
+
+tableSortedRows
+  :: forall key row t m.
+     ( _
+     )
+  => Dynamic t (Map key row)
+  -> m
+      ( Dynamic t (Map Int (key, row))
+      , ALens' (TableSortConfig row) (Maybe Bool)
+        -> Event t (Maybe Bool)
+        -> m ()
+      )
+tableSortedRows rowsDyn = do
+  (sortOnEv, sortOnIO) <- newTriggerEvent
+
+  let sortOn = \field directionEv -> do
+        performEvent_ $ ffor directionEv $ \direction ->
+          liftIO $ sortOnIO (field, direction)
+
+  let updateSortConfig
+        :: ( ALens' (TableSortConfig row) (Maybe Bool)
+           , Maybe Bool
+           )
+        -> TableSortConfig row
+        -> TableSortConfig row
+      updateSortConfig (field, direction) old = old & field #~ direction
+  sortConfigDyn <- foldDyn updateSortConfig mempty sortOnEv
+
+  let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
+
+  pure
+    ( sortedRowsDyn
+    , sortOn
+    )
+
+tableSortRows
+  :: forall key row.
+     ( _
+     )
+  => TableSortConfig row
+  -> Map key row
+  -> Map Int (key, row)
+tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
+  where
+    sortedRowsList = List.sortBy sorter rowsList
+    --
+    sorter (_, a) (_, b) = mconcat orderings
+      where
+        orderings =
+          execWriter $ bitraverseHKD @(HKD row F') @F' @(Const (Maybe Bool)) @((Dict Ord) `Product` (Identity :*: Identity)) @(Const (Maybe Bool))
+            ( \columnConfig (Pair Dict (colA :*: colB)) -> do
+                case columnConfig of
+                  Const (Just direction) ->
+                    case direction of
+                      True -> tell $ [compare colA colB]
+                      False -> tell $ [compare colB colA]
+                  _ -> pure ()
+                pure columnConfig
+            )
+            sortConfig
+            zippedAB
+        --
+        zippedAB =
+            withConstrainedFieldsHKD @Ord @(HKD row F') @F' @(Identity :*: Identity)
+          $ zipHKD @(HKD row F') @F' @Identity (:*:) hkA hkB
+        --
+        hkA = toHKD @HKD @row @F' @Identity a
+        hkB = toHKD @HKD @row @F' @Identity b
+    --
+    rowsList = Map.toList rowsMap
 
