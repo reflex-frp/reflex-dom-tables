@@ -18,7 +18,7 @@ import Control.Lens (ALens', (#~))
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
-import Control.Monad.Writer.Strict
+import Control.Monad.Writer.Strict (MonadWriter(..), execWriter)
 import Data.Default
 import Data.Foldable.WithIndex
 import Data.Functor.Const
