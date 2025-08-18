@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
@@ -290,7 +291,18 @@ type TableSortConfig row = HKD row F' (Const (Maybe Bool))
 
 tableSortedRows
   :: forall key row t m.
-     ( _
+     ( MonadHold t m
+     , MonadFix m
+     , TriggerEvent t m
+     , PerformEvent t m
+     , MonadIO (Performable m)
+     --
+     , Monoid (TableSortConfig row)
+     , ConstructHKD' row F' Identity
+     , ZippableHKD' row F' Identity Identity (Identity :*: Identity)
+     , HKDFieldsHave Ord (HKD row F')
+     , BiTraversableHKD' row F' (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
+     , BiTraversableHKD' row F' (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
      )
   => Dynamic t (Map key row)
   -> m
@@ -328,7 +340,11 @@ tableSortedRows rowsDyn = do
 
 tableSortRows
   :: forall key row.
-     ( _
+     ( ConstructHKD' row F' Identity
+     , ZippableHKD' row F' Identity Identity (Identity :*: Identity)
+     , HKDFieldsHave Ord (HKD row F')
+     , BiTraversableHKD' row F' (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
+     , BiTraversableHKD' row F' (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
      )
   => TableSortConfig row
   -> Map key row
@@ -357,8 +373,8 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
             withConstrainedFieldsHKD @Ord @(HKD row F') @F' @(Identity :*: Identity)
           $ zipHKD @(HKD row F') @F' @Identity (:*:) hkA hkB
         --
-        hkA = toHKD @HKD @row @F' @Identity a
-        hkB = toHKD @HKD @row @F' @Identity b
+        hkA = toHKD @(HKD row F') @row @Identity a
+        hkB = toHKD @(HKD row F') @row @Identity b
     --
     rowsList = Map.toList rowsMap
 
