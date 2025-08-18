@@ -297,7 +297,7 @@ tableSortedRows
      , PerformEvent t m
      , MonadIO (Performable m)
      --
-     , Monoid (TableSortConfig row)
+     , FunctorHKD' row F' (Const (Maybe Bool)) (Const (Maybe Bool))
      , ConstructHKD' row F' Identity
      , ZippableHKD' row F' Identity Identity (Identity :*: Identity)
      , HKDFieldsHave Ord (HKD row F')
@@ -327,7 +327,7 @@ tableSortedRows rowsDyn = do
         -> TableSortConfig row
         -> TableSortConfig row
       updateSortConfig (field, direction) old = old & field #~ direction
-  sortConfigDyn <- foldDyn updateSortConfig mempty sortOnEv
+  sortConfigDyn <- foldDyn updateSortConfig (pureHKD @(HKD row F') @F' @(Const (Maybe Bool)) (Const Nothing)) sortOnEv
 
   let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
 
