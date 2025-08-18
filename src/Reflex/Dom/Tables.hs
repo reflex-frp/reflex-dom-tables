@@ -15,7 +15,6 @@
 
 module Reflex.Dom.Tables where
 
-import Control.Lens (ALens', (#~))
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.IO.Class
@@ -308,26 +307,17 @@ tableSortedRows
   -> m
       ( Dynamic t (Map Int (key, row))
       , ( Dynamic t (TableSortConfig row)
-        , ALens' (TableSortConfig row) (Maybe Bool)
-          -> Event t (Maybe Bool)
-          -> m ()
+        , Event t (TableSortConfig row -> TableSortConfig row) -> m ()
         )
       )
 tableSortedRows rowsDyn = do
   (sortOnEv, sortOnIO) <- newTriggerEvent
 
-  let sortOn = \field directionEv -> do
-        performEvent_ $ ffor directionEv $ \direction ->
-          liftIO $ sortOnIO (field, direction)
+  let sortOn = \updateSortEv -> do
+        performEvent_ $ ffor updateSortEv $ \updateSort ->
+          liftIO $ sortOnIO updateSort
 
-  let updateSortConfig
-        :: ( ALens' (TableSortConfig row) (Maybe Bool)
-           , Maybe Bool
-           )
-        -> TableSortConfig row
-        -> TableSortConfig row
-      updateSortConfig (field, direction) old = old & field #~ direction
-  sortConfigDyn <- foldDyn updateSortConfig (pureHKD @(HKD row F') @F' @(Const (Maybe Bool)) (Const Nothing)) sortOnEv
+  sortConfigDyn <- foldDyn ($) (pureHKD @(HKD row F') @F' @(Const (Maybe Bool)) (Const Nothing)) sortOnEv
 
   let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
 

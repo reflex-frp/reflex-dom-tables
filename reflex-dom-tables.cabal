@@ -89,7 +89,6 @@ library
                     , indexed-traversable
                     , higher-kinded
                     , higher-kinded-instance-base
-                    , lens
                     , mtl
                     , reflex-dom
                     , reflex-dom-attrs
