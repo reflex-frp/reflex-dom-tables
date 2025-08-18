@@ -295,9 +295,11 @@ tableSortedRows
   => Dynamic t (Map key row)
   -> m
       ( Dynamic t (Map Int (key, row))
-      , ALens' (TableSortConfig row) (Maybe Bool)
-        -> Event t (Maybe Bool)
-        -> m ()
+      , ( Dynamic t (TableSortConfig row)
+        , ALens' (TableSortConfig row) (Maybe Bool)
+          -> Event t (Maybe Bool)
+          -> m ()
+        )
       )
 tableSortedRows rowsDyn = do
   (sortOnEv, sortOnIO) <- newTriggerEvent
@@ -319,7 +321,9 @@ tableSortedRows rowsDyn = do
 
   pure
     ( sortedRowsDyn
-    , sortOn
+    , ( sortConfigDyn
+      , sortOn
+      )
     )
 
 tableSortRows
