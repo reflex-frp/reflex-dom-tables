@@ -311,20 +311,20 @@ tableSortedRows
         )
       )
 tableSortedRows rowsDyn = do
-  (sortOnEv, sortOnIO) <- newTriggerEvent
+  (performSortEv, performSortIO) <- newTriggerEvent
 
-  let sortOn = \updateSortEv -> do
+  let performSort = \updateSortEv -> do
         performEvent_ $ ffor updateSortEv $ \updateSort ->
-          liftIO $ sortOnIO updateSort
+          liftIO $ performSortIO updateSort
 
-  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) sortOnEv
+  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) performSortEv
 
   let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
 
   pure
     ( sortedRowsDyn
     , ( sortConfigDyn
-      , sortOn
+      , performSort
       )
     )
 
