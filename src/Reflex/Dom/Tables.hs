@@ -32,7 +32,7 @@ import Data.Maybe (catMaybes, isNothing)
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
 import HigherKinded
-import HigherKinded.Instance.F
+import HigherKinded.Instance.Base
 import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
@@ -286,7 +286,7 @@ tableStatic rows' cfg' = do
 
 
 
-type TableSortConfig row = HKD row F' (Const (Maybe Bool))
+type TableSortConfig columns = columns |> Const (Maybe Bool)
 
 tableSortedRows
   :: forall key row t m.
@@ -296,12 +296,12 @@ tableSortedRows
      , PerformEvent t m
      , MonadIO (Performable m)
      --
-     , FunctorHKD' row F' (Const (Maybe Bool)) (Const (Maybe Bool))
-     , ConstructHKD' row F' Identity
-     , ZippableHKD' row F' Identity Identity (Identity :*: Identity)
-     , HKDFieldsHave Ord (HKD row F')
-     , BiTraversableHKD' row F' (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
-     , BiTraversableHKD' row F' (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
+     , FunctorHKD' row Applied (Const (Maybe Bool)) (Const (Maybe Bool))
+     , ConstructHKD' row Applied Identity
+     , ZippableHKD' row Applied Identity Identity (Identity :*: Identity)
+     , HKDFieldsHave Ord (F row)
+     , BiTraversableHKD' row Applied (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
+     , BiTraversableHKD' row Applied (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
      )
   => Dynamic t (Map key row)
   -> m
@@ -317,7 +317,7 @@ tableSortedRows rowsDyn = do
         performEvent_ $ ffor updateSortEv $ \updateSort ->
           liftIO $ sortOnIO updateSort
 
-  sortConfigDyn <- foldDyn ($) (pureHKD @(HKD row F') @F' @(Const (Maybe Bool)) (Const Nothing)) sortOnEv
+  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) sortOnEv
 
   let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
 
@@ -330,11 +330,11 @@ tableSortedRows rowsDyn = do
 
 tableSortRows
   :: forall key row.
-     ( ConstructHKD' row F' Identity
-     , ZippableHKD' row F' Identity Identity (Identity :*: Identity)
-     , HKDFieldsHave Ord (HKD row F')
-     , BiTraversableHKD' row F' (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
-     , BiTraversableHKD' row F' (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
+     ( ConstructHKD' row Applied Identity
+     , ZippableHKD' row Applied Identity Identity (Identity :*: Identity)
+     , HKDFieldsHave Ord (F row)
+     , BiTraversableHKD' row Applied (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
+     , BiTraversableHKD' row Applied (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
      )
   => TableSortConfig row
   -> Map key row
@@ -346,7 +346,7 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
     sorter (_, a) (_, b) = mconcat orderings
       where
         orderings =
-          execWriter $ bitraverseHKD @(HKD row F') @F' @(Const (Maybe Bool)) @((Dict Ord) `Product` (Identity :*: Identity)) @(Const (Maybe Bool))
+          execWriter $ bitraverseF
             ( \columnConfig (Pair Dict (colA :*: colB)) -> do
                 case columnConfig of
                   Const (Just direction) ->
@@ -360,11 +360,11 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
             zippedAB
         --
         zippedAB =
-            withConstrainedFieldsHKD @Ord @(HKD row F') @F' @(Identity :*: Identity)
-          $ zipHKD @(HKD row F') @F' @Identity (:*:) hkA hkB
+            withConstrainedFieldsHKD @Ord @(F row) @Applied
+          $ zipF (:*:) hkA hkB
         --
-        hkA = toHKD @(HKD row F') @row @Identity a
-        hkB = toHKD @(HKD row F') @row @Identity b
+        hkA = F (Identity a)
+        hkB = F (Identity b)
     --
     rowsList = Map.toList rowsMap
 
