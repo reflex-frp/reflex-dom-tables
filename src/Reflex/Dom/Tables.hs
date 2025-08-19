@@ -449,17 +449,15 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
-    filterer key x = mconcat orderings
-      where
-        orderings =
-          execWriter $ bitraverseF
-            ( \columnConfig (Identity colX) -> do
-                case columnConfig of
-                  Compose (Just (Op f)) -> tell [[f colX key x]]
-                  _ -> pure ()
-                pure (Identity colX)
-            )
-            filterConfig
-            hkX
-        --
-        hkX = F (Identity x)
+    filterer key x =
+      let hkX = F (Identity x)
+      in execWriter $ bitraverseF
+          ( \columnConfig (Identity colX) -> do
+              case columnConfig of
+                Compose (Just (Op f)) -> tell [f colX key x]
+                _ -> pure ()
+              pure (Identity colX)
+          )
+          filterConfig
+          hkX
+
