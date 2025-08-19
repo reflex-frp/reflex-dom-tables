@@ -17,7 +17,6 @@ module Reflex.Dom.Tables where
 
 import Control.Monad
 import Control.Monad.Fix
-import Control.Monad.IO.Class
 import Control.Monad.Writer.Strict (MonadWriter(..), execWriter)
 import Data.Default
 import Data.Foldable.WithIndex
@@ -296,7 +295,6 @@ tableSortedRows
      , MonadFix m
      , TriggerEvent t m
      , PerformEvent t m
-     , MonadIO (Performable m)
      --
      , FunctorHKD' row Applied (Const (Maybe Bool)) (Const (Maybe Bool))
      , ConstructHKD' row Applied Identity
@@ -309,15 +307,11 @@ tableSortedRows
   -> m
       ( Dynamic t (Map Int (key, row))
       , ( Dynamic t (TableSortConfig row)
-        , Event t (TableSortConfig row -> TableSortConfig row) -> m ()
+        , (TableSortConfig row -> TableSortConfig row) -> IO ()
         )
       )
 tableSortedRows rowsDyn = do
-  (performSortEv, performSortIO) <- newTriggerEvent
-
-  let performSort = \updateSortEv -> do
-        performEvent_ $ ffor updateSortEv $ \updateSort ->
-          liftIO $ performSortIO updateSort
+  (performSortEv, performSort) <- newTriggerEvent
 
   sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) performSortEv
 
@@ -393,7 +387,6 @@ tableFilteredRows
      , MonadFix m
      , TriggerEvent t m
      , PerformEvent t m
-     , MonadIO (Performable m)
      --
      , FunctorHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) (Maybe `Compose` (Op (key -> row -> Bool)))
      , ConstructHKD' row Applied Identity
@@ -403,15 +396,11 @@ tableFilteredRows
   -> m
       ( Dynamic t (Map key row)
       , ( Dynamic t (TableFilterConfig key row)
-        , Event t (TableFilterConfig key row -> TableFilterConfig key row) -> m ()
+        , (TableFilterConfig key row -> TableFilterConfig key row) -> IO ()
         )
       )
 tableFilteredRows rowsDyn = do
-  (performFilterEv, performFilterIO) <- newTriggerEvent
-
-  let performFilter = \updateFilterEv -> do
-        performEvent_ $ ffor updateFilterEv $ \updateFilter ->
-          liftIO $ performFilterIO updateFilter
+  (performFilterEv, performFilter) <- newTriggerEvent
 
   filterConfigDyn <- foldDyn ($) (pureF $ Compose Nothing) performFilterEv
 
