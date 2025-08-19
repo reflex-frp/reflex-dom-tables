@@ -414,6 +414,7 @@ tableFilteredRows rowsDyn = do
 tableFilterRows
   :: forall key row.
      ( ConstructHKD' row Applied Identity
+     , TraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) (Maybe `Compose` (Op (key -> row -> Bool)))
      , BiTraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) Identity Identity
      )
   => TableFilterConfig key row
@@ -421,7 +422,19 @@ tableFilterRows
   -> Map key row
 tableFilterRows filterConfig rowsMap = filteredRowsMap
   where
-    filteredRowsMap = Map.filterWithKey (\key x -> and (filterer key x)) rowsMap
+    filteredRowsMap = case isFilterActive of
+      True -> Map.filterWithKey (\key x -> and (filterer key x)) rowsMap
+      False -> rowsMap
+    --
+    isFilterActive =
+      or $ execWriter $ traverseF
+        ( \columnConfig -> do
+            case columnConfig of
+              Compose (Just _) -> tell [True]
+              _ -> pure ()
+            pure columnConfig
+        )
+        filterConfig
     --
     filterer key x = mconcat orderings
       where
