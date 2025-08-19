@@ -336,6 +336,7 @@ tableSortRows
      , ZippableHKD' row Applied Identity Identity (Identity :*: Identity)
      , HKDFieldsHave Ord (F row)
      , BiTraversableHKD' row Applied (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
+     , TraversableHKD' row Applied (Const (Maybe Bool)) (Const (Maybe Bool))
      , BiTraversableHKD' row Applied (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
      )
   => TableSortConfig row
@@ -343,7 +344,19 @@ tableSortRows
   -> Map Int (key, row)
 tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
   where
-    sortedRowsList = List.sortBy sorter rowsList
+    sortedRowsList = case isSortActive of
+      True -> List.sortBy sorter rowsList
+      False -> rowsList
+    --
+    isSortActive =
+      or $ execWriter $ traverseF
+        ( \columnConfig -> do
+            case columnConfig of
+              Const (Just _) -> tell [True]
+              _ -> pure ()
+            pure columnConfig
+        )
+        sortConfig
     --
     sorter (_, a) (_, b) = mconcat orderings
       where
