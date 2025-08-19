@@ -21,7 +21,9 @@ import Control.Monad.IO.Class
 import Control.Monad.Writer.Strict (MonadWriter(..), execWriter)
 import Data.Default
 import Data.Foldable.WithIndex
+import Data.Functor.Compose
 import Data.Functor.Const
+import Data.Functor.Contravariant
 import Data.Functor.Identity
 import Data.Functor.Product
 import Data.List qualified as List
@@ -368,3 +370,70 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
     --
     rowsList = Map.toList rowsMap
 
+
+
+type TableFilterConfig key columns = columns |> (Maybe `Compose` (Op (key -> columns -> Bool)))
+
+tableFilteredRows
+  :: forall key row t m.
+     ( MonadHold t m
+     , MonadFix m
+     , TriggerEvent t m
+     , PerformEvent t m
+     , MonadIO (Performable m)
+     --
+     , FunctorHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) (Maybe `Compose` (Op (key -> row -> Bool)))
+     , ConstructHKD' row Applied Identity
+     , BiTraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) Identity Identity
+     )
+  => Dynamic t (Map key row)
+  -> m
+      ( Dynamic t (Map key row)
+      , ( Dynamic t (TableFilterConfig key row)
+        , Event t (TableFilterConfig key row -> TableFilterConfig key row) -> m ()
+        )
+      )
+tableFilteredRows rowsDyn = do
+  (performFilterEv, performFilterIO) <- newTriggerEvent
+
+  let performFilter = \updateFilterEv -> do
+        performEvent_ $ ffor updateFilterEv $ \updateFilter ->
+          liftIO $ performFilterIO updateFilter
+
+  filterConfigDyn <- foldDyn ($) (pureF $ Compose Nothing) performFilterEv
+
+  let filteredRowsDyn = tableFilterRows <$> filterConfigDyn <*> rowsDyn
+
+  pure
+    ( filteredRowsDyn
+    , ( filterConfigDyn
+      , performFilter
+      )
+    )
+
+tableFilterRows
+  :: forall key row.
+     ( ConstructHKD' row Applied Identity
+     , BiTraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) Identity Identity
+     )
+  => TableFilterConfig key row
+  -> Map key row
+  -> Map key row
+tableFilterRows filterConfig rowsMap = filteredRowsMap
+  where
+    filteredRowsMap = Map.filterWithKey (\key x -> and (filterer key x)) rowsMap
+    --
+    filterer key x = mconcat orderings
+      where
+        orderings =
+          execWriter $ bitraverseF
+            ( \columnConfig (Identity colX) -> do
+                case columnConfig of
+                  Compose (Just (Op f)) -> tell [[f colX key x]]
+                  _ -> pure ()
+                pure (Identity colX)
+            )
+            filterConfig
+            hkX
+        --
+        hkX = F (Identity x)
