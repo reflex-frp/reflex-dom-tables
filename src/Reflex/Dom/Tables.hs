@@ -311,16 +311,16 @@ tableSortedRows
         )
       )
 tableSortedRows rowsDyn = do
-  (performSortEv, performSort) <- newTriggerEvent
+  (triggerSortEv, triggerSort) <- newTriggerEvent
 
-  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) performSortEv
+  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) triggerSortEv
 
   let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
 
   pure
     ( sortedRowsDyn
     , ( sortConfigDyn
-      , performSort
+      , triggerSort
       )
     )
 
@@ -400,16 +400,16 @@ tableFilteredRows
         )
       )
 tableFilteredRows rowsDyn = do
-  (performFilterEv, performFilter) <- newTriggerEvent
+  (triggerFilterEv, triggerFilter) <- newTriggerEvent
 
-  filterConfigDyn <- foldDyn ($) (pureF $ Compose Nothing) performFilterEv
+  filterConfigDyn <- foldDyn ($) (pureF $ Compose Nothing) triggerFilterEv
 
   let filteredRowsDyn = tableFilterRows <$> filterConfigDyn <*> rowsDyn
 
   pure
     ( filteredRowsDyn
     , ( filterConfigDyn
-      , performFilter
+      , triggerFilter
       )
     )
 
