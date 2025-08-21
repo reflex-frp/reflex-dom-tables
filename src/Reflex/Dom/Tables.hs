@@ -28,7 +28,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes, isNothing)
+import Data.Maybe (catMaybes, isNothing, fromMaybe)
 import Data.Semigroup (Any(..), All(..))
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
@@ -442,13 +442,13 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
-    filterer key x = any_ && all_
+    filterer key x = (fromMaybe True $ getAny <$> anyM) && (fromMaybe True $ getAll <$> allM)
       where
-        (Any any_, All all_) = execWriter $ bitraverseF
+        (anyM, allM) = execWriter $ bitraverseF
           ( \columnConfig (Identity colX) -> do
               case columnConfig of
-                Compose (Just (TableFilterPredicate_Any f)) -> tell (Any $ f key x colX, mempty)
-                Compose (Just (TableFilterPredicate_All f)) -> tell (mempty, All $ f key x colX)
+                Compose (Just (TableFilterPredicate_Any f)) -> tell (Just $ Any $ f key x colX, Nothing)
+                Compose (Just (TableFilterPredicate_All f)) -> tell (Nothing, Just $ All $ f key x colX)
                 _ -> pure ()
               pure (Identity colX)
           )
