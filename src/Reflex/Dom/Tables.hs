@@ -444,7 +444,7 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
     --
     filterer key x =
         case (getAny <$> anyM, getAll <$> allM) of
-          (Just anys, Just alls) -> anys || alls
+          (Just anys, Just alls) -> anys && alls
           (Just anys, _) -> anys
           (_, Just alls) -> alls
           _ -> True
