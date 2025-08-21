@@ -442,7 +442,7 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
-    filterer key x = (fromMaybe True $ getAny <$> anyM) && (fromMaybe True $ getAll <$> allM)
+    filterer key x = (fromMaybe False $ getAny <$> anyM) || (fromMaybe True $ getAll <$> allM)
       where
         (anyM, allM) = execWriter $ bitraverseF
           ( \columnConfig (Identity colX) -> do
