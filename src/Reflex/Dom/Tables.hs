@@ -22,7 +22,6 @@ import Data.Default
 import Data.Foldable.WithIndex
 import Data.Functor.Compose
 import Data.Functor.Const
-import Data.Functor.Contravariant
 import Data.Functor.Identity
 import Data.Functor.Product
 import Data.List qualified as List
@@ -30,6 +29,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, isNothing)
+import Data.Semigroup (Any(..), All(..))
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
 import HigherKinded
@@ -379,7 +379,11 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
 
 
 
-type TableFilterConfig key columns = columns |> (Maybe `Compose` (Op (key -> columns -> Bool)))
+type TableFilterConfig key columns = columns |> (Maybe `Compose` TableFilterPredicate key columns)
+
+data TableFilterPredicate key columns a
+  = TableFilterPredicate_Any (key -> columns -> a -> Bool)
+  | TableFilterPredicate_All (key -> columns -> a -> Bool)
 
 tableFilteredRows
   :: forall key row t m.
@@ -388,9 +392,9 @@ tableFilteredRows
      , TriggerEvent t m
      , PerformEvent t m
      --
-     , FunctorHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) (Maybe `Compose` (Op (key -> row -> Bool)))
+     , FunctorHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) (Maybe `Compose` TableFilterPredicate key row)
      , ConstructHKD' row Applied Identity
-     , BiTraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) Identity Identity
+     , BiTraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) Identity Identity
      )
   => Dynamic t (Map key row)
   -> m
@@ -416,8 +420,8 @@ tableFilteredRows rowsDyn = do
 tableFilterRows
   :: forall key row.
      ( ConstructHKD' row Applied Identity
-     , TraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) (Maybe `Compose` (Op (key -> row -> Bool)))
-     , BiTraversableHKD' row Applied (Maybe `Compose` (Op (key -> row -> Bool))) Identity Identity
+     , TraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) (Maybe `Compose` TableFilterPredicate key row)
+     , BiTraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) Identity Identity
      )
   => TableFilterConfig key row
   -> Map key row
@@ -425,28 +429,31 @@ tableFilterRows
 tableFilterRows filterConfig rowsMap = filteredRowsMap
   where
     filteredRowsMap = case isFilterActive of
-      True -> Map.filterWithKey (\key x -> and (filterer key x)) rowsMap
+      True -> Map.filterWithKey filterer rowsMap
       False -> rowsMap
     --
     isFilterActive =
-      or $ execWriter $ traverseF
+      getAny $ execWriter $ traverseF
         ( \columnConfig -> do
             case columnConfig of
-              Compose (Just _) -> tell [True]
+              Compose (Just _) -> tell $ Any True
               _ -> pure ()
             pure columnConfig
         )
         filterConfig
     --
-    filterer key x =
-      let hkX = F (Identity x)
-      in execWriter $ bitraverseF
+    filterer key x = any_ && all_
+      where
+        (Any any_, All all_) = execWriter $ bitraverseF
           ( \columnConfig (Identity colX) -> do
               case columnConfig of
-                Compose (Just (Op f)) -> tell [f colX key x]
+                Compose (Just (TableFilterPredicate_Any f)) -> tell (Any $ f key x colX, mempty)
+                Compose (Just (TableFilterPredicate_All f)) -> tell (mempty, All $ f key x colX)
                 _ -> pure ()
               pure (Identity colX)
           )
           filterConfig
           hkX
+        hkX = F (Identity x)
+
 
