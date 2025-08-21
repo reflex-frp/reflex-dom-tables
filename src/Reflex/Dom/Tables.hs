@@ -28,7 +28,7 @@ import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
-import Data.Maybe (catMaybes, isNothing, fromMaybe)
+import Data.Maybe (catMaybes, isNothing)
 import Data.Semigroup (Any(..), All(..))
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
@@ -442,7 +442,12 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
-    filterer key x = (fromMaybe False $ getAny <$> anyM) || (fromMaybe True $ getAll <$> allM)
+    filterer key x =
+        case (getAny <$> anyM, getAll <$> allM) of
+          (Just anys, Just alls) -> anys || alls
+          (Just anys, _) -> anys
+          (_, Just alls) -> alls
+          _ -> True
       where
         (anyM, allM) = execWriter $ bitraverseF
           ( \columnConfig (Identity colX) -> do
