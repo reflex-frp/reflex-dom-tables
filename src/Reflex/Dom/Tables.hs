@@ -33,7 +33,7 @@ import Data.Semigroup (Any(..), All(..))
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
 import HigherKinded
-import HigherKinded.Instance.Base
+import HigherKinded.HKD.Base
 import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
@@ -287,7 +287,8 @@ tableStatic rows' cfg' = do
 
 
 
-type TableSortConfig columns = columns |> Const (Maybe Bool)
+type TableSortConfig columns = columns |> TableSortConfigF
+type TableSortConfigF = Const (Maybe Bool)
 
 tableSortedRows
   :: forall key row t m.
@@ -296,12 +297,13 @@ tableSortedRows
      , TriggerEvent t m
      , PerformEvent t m
      --
-     , FunctorHKD' row Applied (Const (Maybe Bool)) (Const (Maybe Bool))
-     , ConstructHKD' row Applied Identity
-     , ZippableHKD' row Applied Identity Identity (Identity :*: Identity)
+     , ConstructHKD (F row) row Applied Identity
      , HKDFieldsHave Ord (F row)
-     , BiTraversableHKD' row Applied (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
-     , BiTraversableHKD' row Applied (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
+     , IsHKD (F row) Applied Identity
+     , IsHKD (F row) Applied (Identity :*: Identity)
+     , IsHKD (F row) Applied (Dict Ord)
+     , IsHKD (F row) Applied (Dict Ord `Product` (Identity :*: Identity))
+     , IsHKD (F row) Applied TableSortConfigF
      )
   => Dynamic t (Map key row)
   -> m
@@ -326,12 +328,13 @@ tableSortedRows rowsDyn = do
 
 tableSortRows
   :: forall key row.
-     ( ConstructHKD' row Applied Identity
-     , ZippableHKD' row Applied Identity Identity (Identity :*: Identity)
+     ( ConstructHKD (F row) row Applied Identity
      , HKDFieldsHave Ord (F row)
-     , BiTraversableHKD' row Applied (Dict Ord) (Identity :*: Identity) ((Dict Ord) `Product` (Identity :*: Identity))
-     , TraversableHKD' row Applied (Const (Maybe Bool)) (Const (Maybe Bool))
-     , BiTraversableHKD' row Applied (Const (Maybe Bool)) ((Dict Ord) `Product` (Identity :*: Identity)) (Const (Maybe Bool))
+     , IsHKD (F row) Applied Identity
+     , IsHKD (F row) Applied (Identity :*: Identity)
+     , IsHKD (F row) Applied (Dict Ord)
+     , IsHKD (F row) Applied (Dict Ord `Product` (Identity :*: Identity))
+     , IsHKD (F row) Applied TableSortConfigF
      )
   => TableSortConfig row
   -> Map key row
@@ -379,7 +382,8 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
 
 
 
-type TableFilterConfig key columns = columns |> (Maybe `Compose` TableFilterPredicate key columns)
+type TableFilterConfig key columns = columns |> TableFilterConfigF key columns
+type TableFilterConfigF key columns = Maybe `Compose` TableFilterPredicate key columns
 
 data TableFilterPredicate key columns a
   = TableFilterPredicate_Any (key -> columns -> a -> Bool)
@@ -392,9 +396,9 @@ tableFilteredRows
      , TriggerEvent t m
      , PerformEvent t m
      --
-     , FunctorHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) (Maybe `Compose` TableFilterPredicate key row)
-     , ConstructHKD' row Applied Identity
-     , BiTraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) Identity Identity
+     , ConstructHKD (F row) row Applied Identity
+     , IsHKD (F row) Applied Identity
+     , IsHKD (F row) Applied (TableFilterConfigF key row)
      )
   => Dynamic t (Map key row)
   -> m
@@ -419,9 +423,9 @@ tableFilteredRows rowsDyn = do
 
 tableFilterRows
   :: forall key row.
-     ( ConstructHKD' row Applied Identity
-     , TraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) (Maybe `Compose` TableFilterPredicate key row)
-     , BiTraversableHKD' row Applied (Maybe `Compose` TableFilterPredicate key row) Identity Identity
+     ( ConstructHKD (F row) row Applied Identity
+     , IsHKD (F row) Applied Identity
+     , IsHKD (F row) Applied (TableFilterConfigF key row)
      )
   => TableFilterConfig key row
   -> Map key row
@@ -460,5 +464,4 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
           filterConfig
           hkX
         hkX = F (Identity x)
-
 

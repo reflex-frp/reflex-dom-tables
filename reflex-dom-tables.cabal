@@ -88,7 +88,7 @@ library
                     , data-default
                     , indexed-traversable
                     , higher-kinded
-                    , higher-kinded-instance-base
+                    , higher-kinded-data
                     , mtl
                     , reflex-dom
                     , reflex-dom-attrs
