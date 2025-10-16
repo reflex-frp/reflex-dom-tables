@@ -38,6 +38,7 @@ import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
 import Reflex.Dom.Tables.Internal
+import qualified Data.Text as T
 
 
 
@@ -122,6 +123,76 @@ data Table key row th td t m = Table
   , table_ths :: [[(El t m, th)]]
   , table_trs :: Map key (El t m, [(El t m, td)])
   }
+
+
+tableDyn'
+  :: forall key row th td t m.
+     ( DomBuilder t m
+     , PostBuild t m
+     , MonadFix m
+     , MonadHold t m
+     , Ord key
+     , Eq row
+     )
+  => Dynamic t (Map key row)
+  -> Dynamic t Int -- Height of padding element
+  -> TableConfig key (Dynamic t row) th td t m
+  -> m (Dynamic t (Table key row th td t m))
+tableDyn' rows pad cfg = do
+  let columns = tableConfig_columns cfg
+      headerRows = getTHRows columns
+      cols = getTDs columns
+      tableAttrs = tableConfig_tableAttrs cfg
+      theadAttrs = tableConfig_theadAttrs cfg
+      tbodyAttrs = tableConfig_tbodyAttrs cfg
+      thAttrs = tableConfig_thAttrs cfg
+      trAttrs = tableConfig_trAttrs cfg
+      tdAttrs = tableConfig_tdAttrs cfg
+
+  (tableEl, ((theadEl, ths), (tbodyEl, trsDyn))) <- elAttrs' "table" tableAttrs $ do
+
+    thead :: (El t m, [[(El t m, th)]]) <-
+      elAttrs' "thead" theadAttrs $
+        for headerRows $ \headers ->
+          el "tr" $
+            fmap catMaybes $ for headers $ \case
+              Nothing -> do
+                void $ elAttrs' "th" (thAttrs Nothing) $ blank
+                pure Nothing
+              Just (header, colspan) -> mdo
+                th@(_, thVal) <- elAttrs' "th"
+                  ( thAttrs (Just thVal)
+                  <> case colspan of
+                      1 -> []
+                      _ -> ["colspan" ~: show colspan]
+                  ) header
+                pure $ Just th
+
+    tbody :: (El t m, Dynamic t (Map key (El t m, [(El t m, td)]))) <-
+      elAttrs' "tbody" tbodyAttrs $ do
+        r <- listWithKey rows $ \k row ->
+          elAttrs' "tr" (trAttrs k row) $
+            for cols $ \col -> mdo
+              td@(_, tdVal) <- elAttrs' "td" (tdAttrs tdVal k row) $ col k row
+              pure td
+        elDynAttr "tr" (ffor pad $ \pad' -> ("style" =: ("height:" <> T.pack (show pad') <> "px"))) $ blank
+        pure r
+
+    pure (thead, tbody)
+
+  pure $ ffor trsDyn $ \trs ->
+    Table
+      { table_tableEl = tableEl
+      , table_theadEl = theadEl
+      , table_tbodyEl = tbodyEl
+      , table_thEls = fmap fst <$> ths
+      , table_trEls = fst <$> trs
+      , table_tdEls = ffor trs $ fmap fst . snd
+      , table_thVals = fmap snd <$> ths
+      , table_trVals = ffor trs $ fmap snd . snd
+      , table_ths = ths
+      , table_trs = trs
+      }
 
 tableDyn
   :: forall key row th td t m.
