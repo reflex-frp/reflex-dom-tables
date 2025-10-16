@@ -92,6 +92,7 @@ library
                     , mtl
                     , reflex-dom
                     , reflex-dom-attrs
+                    , text
 
     -- Directories containing source files.
     hs-source-dirs:   src
