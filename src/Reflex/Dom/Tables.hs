@@ -15,6 +15,7 @@
 
 module Reflex.Dom.Tables where
 
+import Prelude hiding (catMaybes)
 import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.Writer.Strict (MonadWriter(..), execWriter)
@@ -135,7 +136,7 @@ tableDyn'
      , Eq row
      )
   => Dynamic t (Map key row)
-  -> Dynamic t Int -- Height of padding element
+  -> Dynamic t (Double, Double) -- Heights of padding elements
   -> TableConfig key (Dynamic t row) th td t m
   -> m (Dynamic t (Table key row th td t m))
 tableDyn' rows pad cfg = do
@@ -170,12 +171,13 @@ tableDyn' rows pad cfg = do
 
     tbody :: (El t m, Dynamic t (Map key (El t m, [(El t m, td)]))) <-
       elAttrs' "tbody" tbodyAttrs $ do
+        elDynAttr "tr" (ffor pad $ \pad' -> ("style" =: ("height:" <> T.pack (show $ fst pad') <> "px"))) $ blank
         r <- listWithKey rows $ \k row ->
           elAttrs' "tr" (trAttrs k row) $
             for cols $ \col -> mdo
               td@(_, tdVal) <- elAttrs' "td" (tdAttrs tdVal k row) $ col k row
               pure td
-        elDynAttr "tr" (ffor pad $ \pad' -> ("style" =: ("height:" <> T.pack (show pad') <> "px"))) $ blank
+        elDynAttr "tr" (ffor pad $ \pad' -> ("style" =: ("height:" <> T.pack (show $ snd pad') <> "px"))) $ blank
         pure r
 
     pure (thead, tbody)
