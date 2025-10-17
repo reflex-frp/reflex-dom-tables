@@ -326,7 +326,7 @@ tableSortedRows rowsDyn = do
       )
     )
 
-{-# INLINABLE tableSortRows #-}
+{-# INLINE tableSortRows #-}
 tableSortRows
   :: forall key row.
      ( ConstructHKD (F row) row Applied Identity
@@ -422,7 +422,7 @@ tableFilteredRows rowsDyn = do
       )
     )
 
-{-# INLINABLE tableFilterRows #-}
+{-# INLINE tableFilterRows #-}
 tableFilterRows
   :: forall key row.
      ( ConstructHKD (F row) row Applied Identity
