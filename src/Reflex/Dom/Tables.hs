@@ -19,13 +19,11 @@ import Control.Monad
 import Control.Monad.Fix
 import Control.Monad.Writer.Strict (MonadWriter(..), execWriter)
 import Data.Default
-import Data.Foldable.WithIndex
 import Data.Functor.Compose
 import Data.Functor.Const
 import Data.Functor.Identity
 import Data.Functor.Product
 import Data.List qualified as List
-import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Maybe (catMaybes, isNothing)
@@ -187,102 +185,6 @@ tableDyn rows cfg = do
       , table_ths = ths
       , table_trs = trs
       }
-
-tableDynView
-  :: ( DomBuilder t m
-     , MonadFix m
-     , MonadHold t m
-     , PostBuild t m
-     , Ord key
-     , Eq row
-     )
-  => Dynamic t (Map key row)
-  -> TableConfig key (Dynamic t row) th (Event t td) t m
-  -> m (Event t (Table key row th td t m))
-tableDynView rows cfg = do
-  tableD <- tableDyn rows cfg
-  let tableDEv = ffor tableD $ \table ->
-        let trsEv = mergeMap $ ffor (table_trs table) $ \(trEl, tds) ->
-              fmap ((trEl,) . NE.toList) $ mergeList $ fmap (\(tdEl, td) -> (tdEl,) <$> td) tds
-        in ffor trsEv $ \trs ->
-          Table
-            { table_tableEl = table_tableEl table
-            , table_theadEl = table_theadEl table
-            , table_tbodyEl = table_tbodyEl table
-            , table_thEls = table_thEls table
-            , table_trEls = table_trEls table
-            , table_tdEls = table_tdEls table
-            , table_thVals = table_thVals table
-            , table_trVals = ffor trs $ fmap snd . snd
-            , table_ths = table_ths table
-            , table_trs = trs
-            }
-  pure $ switchDyn tableDEv
-
-tableStaticView
-  :: ( DomBuilder t m
-     , MonadFix m
-     , MonadHold t m
-     , PostBuild t m
-     , FoldableWithIndex key f
-     , Ord key
-     , Eq row
-     )
-  => f row
-  -> TableConfig key row th (Event t td) t m
-  -> m (Event t (Table key row th td t m))
-tableStaticView rows' cfg' = do
-  let rows = constDyn $ Map.fromList $ itoList rows'
-      cfg = TableConfig
-        { tableConfig_tableAttrs = tableConfig_tableAttrs cfg'
-        , tableConfig_theadAttrs = tableConfig_theadAttrs cfg'
-        , tableConfig_tbodyAttrs = tableConfig_tbodyAttrs cfg'
-        , tableConfig_thAttrs = tableConfig_thAttrs cfg'
-        , tableConfig_trAttrs = \key rowDyn ->
-            [ foldDynAttrs $ (tableConfig_trAttrs cfg') key <$> rowDyn ]
-        , tableConfig_tdAttrs = \td key rowDyn ->
-            [ foldDynAttrs $ (tableConfig_tdAttrs cfg') td key <$> rowDyn ]
-        , tableConfig_columns = ffor (tableConfig_columns cfg') $ mapTableColumn $
-            ( id
-            , \col -> \k rowDyn -> do
-                row <- sample $ current rowDyn
-                col k row
-            )
-        }
-  tableDynView rows cfg
-
-tableStatic
-  :: ( DomBuilder t m
-     , MonadFix m
-     , MonadHold t m
-     , PostBuild t m
-     , FoldableWithIndex key f
-     , Ord key
-     , Eq row
-     )
-  => f row
-  -> TableConfig key row th td t m
-  -> m (Table key row th td t m)
-tableStatic rows' cfg' = do
-  let rows = constDyn $ Map.fromList $ itoList rows'
-      cfg = TableConfig
-        { tableConfig_tableAttrs = tableConfig_tableAttrs cfg'
-        , tableConfig_theadAttrs = tableConfig_theadAttrs cfg'
-        , tableConfig_tbodyAttrs = tableConfig_tbodyAttrs cfg'
-        , tableConfig_thAttrs = tableConfig_thAttrs cfg'
-        , tableConfig_trAttrs = \key rowDyn ->
-            [ foldDynAttrs $ (tableConfig_trAttrs cfg') key <$> rowDyn ]
-        , tableConfig_tdAttrs = \td key rowDyn ->
-            [ foldDynAttrs $ (tableConfig_tdAttrs cfg') td key <$> rowDyn ]
-        , tableConfig_columns = ffor (tableConfig_columns cfg') $ mapTableColumn $
-            ( id
-            , \col -> \k rowDyn -> do
-                row <- sample $ current rowDyn
-                col k row
-            )
-        }
-  table <- tableDyn rows cfg
-  sample $ current table
 
 
 
