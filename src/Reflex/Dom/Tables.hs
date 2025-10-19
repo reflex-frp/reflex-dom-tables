@@ -36,7 +36,9 @@ import Reflex.Dom.Attrs
 
 import Reflex.Dom.Tables.Internal
 
-
+--
+-- | Table configuration
+--
 
 data TableConfig key row th td t m = TableConfig
   { tableConfig_columns :: [TableColumn key row (m th) (m td)] -- ^ columns configuration
@@ -59,7 +61,9 @@ instance Reflex t => Default (TableConfig key row th td t m) where
     , tableConfig_tdAttrs = \_ _ _ -> def
     }
 
-
+--
+-- | Column configuration
+--
 
 data TableColumn key row th td
   = TD (key -> row -> td)
@@ -105,7 +109,9 @@ forTableColumn
   -> TableColumn key' row' th' td'
 forTableColumn = flip mapTableColumn
 
-
+--
+-- | Table output
+--
 
 data Table key row th td t m = Table
   { table_tableEl :: El t m
@@ -119,6 +125,10 @@ data Table key row th td t m = Table
   , table_ths :: [[(El t m, th)]]
   , table_trs :: Map key (El t m, [(El t m, td)])
   }
+
+--
+-- | Table widget
+--
 
 elTable
   :: forall key row th td t m.
@@ -186,7 +196,9 @@ elTable rows cfg = do
       , table_trs = trs
       }
 
-
+--
+-- | Table sorting
+--
 
 type TableSortConfig columnsHKD = columnsHKD ColumnSortConfig
 type ColumnSortConfig = Const (Maybe Bool)
@@ -297,7 +309,9 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
     rowsList :: [(key, row)]
     rowsList = Map.toList rowsMap
 
-
+--
+-- | Table filtering
+--
 
 type TableFilterConfig columnsHKD key columns = columnsHKD (ColumnFilterConfig key columns)
 type ColumnFilterConfig key columns = Maybe `Compose` ColumnFilterPredicate key columns
