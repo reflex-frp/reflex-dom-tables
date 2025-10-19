@@ -204,7 +204,7 @@ type TableSortConfig columnsHKD = columnsHKD ColumnSortConfig
 type ColumnSortConfig = Const (Maybe Bool)
 
 tableSortedRows
-  :: forall rowHKD hkt key row t m.
+  :: forall hkt rowHKD key row t m.
      ( MonadHold t m
      , MonadFix m
      , TriggerEvent t m
@@ -225,29 +225,14 @@ tableSortedRows
         , (TableSortConfig rowHKD -> TableSortConfig rowHKD) -> IO ()
         )
       )
-tableSortedRows rowsDyn = do
-  (triggerSortEv, triggerSort)
-    :: ( Event t (TableSortConfig rowHKD -> TableSortConfig rowHKD)
-       , (TableSortConfig rowHKD -> TableSortConfig rowHKD) -> IO ()
-       )
-    <- newTriggerEvent
-
-  sortConfigDyn
-    :: Dynamic t (TableSortConfig rowHKD)
-    <- foldDyn ($) (pureHKD @rowHKD @hkt $ Const Nothing) triggerSortEv
-
-  let sortedRowsDyn :: Dynamic t (Map Int (key, row))
-      sortedRowsDyn = tableSortRows @rowHKD @hkt <$> sortConfigDyn <*> rowsDyn
-
-  pure
-    ( sortedRowsDyn
-    , ( sortConfigDyn
-      , triggerSort
-      )
-    )
+tableSortedRows = foldDynWithTrigger go initSortConfig
+  where
+    initSortConfig = pureHKD @rowHKD @hkt $ Const Nothing
+    --
+    go = liftA2 (tableSortRows @hkt)
 
 tableSortRows
-  :: forall rowHKD hkt key row.
+  :: forall hkt rowHKD key row.
      ( ConstructHKD rowHKD row hkt Identity
      , HKDFieldsHave Ord rowHKD
      , IsHKD rowHKD hkt ColumnSortConfig
@@ -259,9 +244,52 @@ tableSortRows
   => TableSortConfig rowHKD
   -> Map key row
   -> Map Int (key, row)
-tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
+tableSortRows sortConfig = withHKDIndexedRows @hkt (tableSortRows' @hkt sortConfig)
+
+--
+
+tableSortedRows'
+  :: forall hkt key rowHKD t m.
+     ( MonadHold t m
+     , MonadFix m
+     , TriggerEvent t m
+     , PerformEvent t m
+     --
+     , HKDFieldsHave Ord rowHKD
+     , IsHKD rowHKD hkt ColumnSortConfig
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (Identity :*: Identity)
+     , IsHKD rowHKD hkt (Dict Ord)
+     , IsHKD rowHKD hkt (Dict Ord `Product` (Identity :*: Identity))
+     )
+  => Dynamic t (Map key (rowHKD Identity))
+  -> m
+      ( Dynamic t (Map Int (key, rowHKD Identity))
+      , ( Dynamic t (TableSortConfig rowHKD)
+        , (TableSortConfig rowHKD -> TableSortConfig rowHKD) -> IO ()
+        )
+      )
+tableSortedRows' = foldDynWithTrigger go initSortConfig
   where
-    sortedRowsList :: [(key, row)]
+    initSortConfig = pureHKD @rowHKD @hkt $ Const Nothing
+    --
+    go = liftA2 (tableSortRows' @hkt)
+
+tableSortRows'
+  :: forall hkt key rowHKD.
+     ( HKDFieldsHave Ord rowHKD
+     , IsHKD rowHKD hkt ColumnSortConfig
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (Identity :*: Identity)
+     , IsHKD rowHKD hkt (Dict Ord)
+     , IsHKD rowHKD hkt (Dict Ord `Product` (Identity :*: Identity))
+     )
+  => TableSortConfig rowHKD
+  -> Map key (rowHKD Identity)
+  -> Map Int (key, (rowHKD Identity))
+tableSortRows' sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
+  where
+    sortedRowsList :: [(key, rowHKD Identity)]
     sortedRowsList = case isSortActive of
       True -> List.sortBy sorter rowsList
       False -> rowsList
@@ -277,7 +305,7 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
         )
         sortConfig
     --
-    sorter :: (key, row) -> (key, row) -> Ordering
+    sorter :: (key, rowHKD Identity) -> (key, rowHKD Identity) -> Ordering
     sorter (_, a) (_, b) = mconcat orderings
       where
         orderings :: [Ordering]
@@ -298,22 +326,16 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
         zippedAB :: rowHKD (Dict Ord `Product` (Identity :*: Identity))
         zippedAB =
             withConstrainedFieldsHKD @Ord @rowHKD @hkt
-          $ zipHKD @rowHKD @hkt (:*:) hkA hkB
-        --
-        hkA :: rowHKD Identity
-        hkA = HKD @rowHKD @row @hkt (Identity a)
-        --
-        hkB :: rowHKD Identity
-        hkB = HKD @rowHKD @row @hkt (Identity b)
+          $ zipHKD @rowHKD @hkt (:*:) a b
     --
-    rowsList :: [(key, row)]
+    rowsList :: [(key, rowHKD Identity)]
     rowsList = Map.toList rowsMap
 
 --
 -- | Table filtering
 --
 
-type TableFilterConfig columnsHKD key columns = columnsHKD (ColumnFilterConfig key columns)
+type TableFilterConfig key columnsHKD = columnsHKD (ColumnFilterConfig key (columnsHKD Identity))
 type ColumnFilterConfig key columns = Maybe `Compose` ColumnFilterPredicate key columns
 
 data ColumnFilterPredicate key columns a
@@ -321,7 +343,7 @@ data ColumnFilterPredicate key columns a
   | ColumnFilterPredicate_Many (key -> columns -> a -> Bool)
 
 tableFilteredRows
-  :: forall rowHKD hkt key row t m.
+  :: forall hkt rowHKD key row t m.
      ( MonadHold t m
      , MonadFix m
      , TriggerEvent t m
@@ -329,46 +351,66 @@ tableFilteredRows
      --
      , ConstructHKD rowHKD row hkt Identity
      , IsHKD rowHKD hkt Identity
-     , IsHKD rowHKD hkt (ColumnFilterConfig key row)
+     , IsHKD rowHKD hkt (ColumnFilterConfig key (rowHKD Identity))
      )
   => Dynamic t (Map key row)
   -> m
       ( Dynamic t (Map key row)
-      , ( Dynamic t (TableFilterConfig rowHKD key row)
-        , (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row) -> IO ()
+      , ( Dynamic t (TableFilterConfig key rowHKD)
+        , (TableFilterConfig key rowHKD -> TableFilterConfig key rowHKD) -> IO ()
         )
       )
-tableFilteredRows rowsDyn = do
-  (triggerFilterEv, triggerFilter)
-    :: ( Event t (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row)
-       , (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row) -> IO ()
-       )
-    <- newTriggerEvent
-
-  filterConfigDyn
-    :: Dynamic t (TableFilterConfig rowHKD key row)
-    <- foldDyn ($) (pureHKD @rowHKD @hkt $ Compose Nothing) triggerFilterEv
-
-  let filteredRowsDyn :: Dynamic t (Map key row)
-      filteredRowsDyn = tableFilterRows @rowHKD @hkt <$> filterConfigDyn <*> rowsDyn
-
-  pure
-    ( filteredRowsDyn
-    , ( filterConfigDyn
-      , triggerFilter
-      )
-    )
+tableFilteredRows = foldDynWithTrigger go initFilterConfig
+  where
+    initFilterConfig = pureHKD @rowHKD @hkt $ Compose Nothing
+    --
+    go = liftA2 (tableFilterRows @hkt)
 
 tableFilterRows
-  :: forall rowHKD hkt key row.
+  :: forall hkt rowHKD key row.
      ( ConstructHKD rowHKD row hkt Identity
      , IsHKD rowHKD hkt Identity
-     , IsHKD rowHKD hkt (ColumnFilterConfig key row)
+     , IsHKD rowHKD hkt (ColumnFilterConfig key (rowHKD Identity))
      )
-  => TableFilterConfig rowHKD key row
+  => TableFilterConfig key rowHKD
   -> Map key row
   -> Map key row
-tableFilterRows filterConfig rowsMap = filteredRowsMap
+tableFilterRows filterConfig = withHKDRows @hkt (tableFilterRows' @hkt filterConfig)
+
+--
+
+tableFilteredRows'
+  :: forall hkt key rowHKD t m.
+     ( MonadHold t m
+     , MonadFix m
+     , TriggerEvent t m
+     , PerformEvent t m
+     --
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (ColumnFilterConfig key (rowHKD Identity))
+     )
+  => Dynamic t (Map key (rowHKD Identity))
+  -> m
+      ( Dynamic t (Map key (rowHKD Identity))
+      , ( Dynamic t (TableFilterConfig key rowHKD)
+        , (TableFilterConfig key rowHKD -> TableFilterConfig key rowHKD) -> IO ()
+        )
+      )
+tableFilteredRows' = foldDynWithTrigger go initFilterConfig
+  where
+    initFilterConfig = pureHKD @rowHKD @hkt $ Compose Nothing
+    --
+    go = liftA2 (tableFilterRows' @hkt)
+
+tableFilterRows'
+  :: forall hkt key rowHKD.
+     ( IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (ColumnFilterConfig key (rowHKD Identity))
+     )
+  => TableFilterConfig key rowHKD
+  -> Map key (rowHKD Identity)
+  -> Map key (rowHKD Identity)
+tableFilterRows' filterConfig rowsMap = filteredRowsMap
   where
     filteredRowsMap = case isFilterActive of
       True -> Map.filterWithKey filterer rowsMap
@@ -384,7 +426,7 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
-    filterer :: key -> row -> Bool
+    filterer :: key -> rowHKD Identity -> Bool
     filterer key x =
         case (getAny <$> someM, getAll <$> manyM) of
           (Just somes, Just manys) -> somes && manys
@@ -402,8 +444,4 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
                 pure (Identity colX)
             )
             filterConfig
-            hkX
-        --
-        hkX :: rowHKD Identity
-        hkX = HKD @rowHKD @row @hkt (Identity x)
-
+            x
