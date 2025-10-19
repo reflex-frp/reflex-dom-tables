@@ -287,37 +287,44 @@ tableStatic rows' cfg' = do
 
 
 
-type TableSortConfig columns = columns |> TableSortConfigF
-type TableSortConfigF = Const (Maybe Bool)
+type TableSortConfig columnsHKD = columnsHKD ColumnSortConfig
+type ColumnSortConfig = Const (Maybe Bool)
 
 tableSortedRows
-  :: forall key row t m.
+  :: forall rowHKD hkt key row t m.
      ( MonadHold t m
      , MonadFix m
      , TriggerEvent t m
      , PerformEvent t m
      --
-     , ConstructHKD (F row) row Applied Identity
-     , HKDFieldsHave Ord (F row)
-     , IsHKD (F row) Applied Identity
-     , IsHKD (F row) Applied (Identity :*: Identity)
-     , IsHKD (F row) Applied (Dict Ord)
-     , IsHKD (F row) Applied (Dict Ord `Product` (Identity :*: Identity))
-     , IsHKD (F row) Applied TableSortConfigF
+     , ConstructHKD rowHKD row hkt Identity
+     , HKDFieldsHave Ord rowHKD
+     , IsHKD rowHKD hkt ColumnSortConfig
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (Identity :*: Identity)
+     , IsHKD rowHKD hkt (Dict Ord)
+     , IsHKD rowHKD hkt (Dict Ord `Product` (Identity :*: Identity))
      )
   => Dynamic t (Map key row)
   -> m
       ( Dynamic t (Map Int (key, row))
-      , ( Dynamic t (TableSortConfig row)
-        , (TableSortConfig row -> TableSortConfig row) -> IO ()
+      , ( Dynamic t (TableSortConfig rowHKD)
+        , (TableSortConfig rowHKD -> TableSortConfig rowHKD) -> IO ()
         )
       )
 tableSortedRows rowsDyn = do
-  (triggerSortEv, triggerSort) <- newTriggerEvent
+  (triggerSortEv, triggerSort)
+    :: ( Event t (TableSortConfig rowHKD -> TableSortConfig rowHKD)
+       , (TableSortConfig rowHKD -> TableSortConfig rowHKD) -> IO ()
+       )
+    <- newTriggerEvent
 
-  sortConfigDyn <- foldDyn ($) (pureF $ Const Nothing) triggerSortEv
+  sortConfigDyn
+    :: Dynamic t (TableSortConfig rowHKD)
+    <- foldDyn ($) (pureHKD @rowHKD @hkt $ Const Nothing) triggerSortEv
 
-  let sortedRowsDyn = tableSortRows <$> sortConfigDyn <*> rowsDyn
+  let sortedRowsDyn :: Dynamic t (Map Int (key, row))
+      sortedRowsDyn = tableSortRows @rowHKD @hkt <$> sortConfigDyn <*> rowsDyn
 
   pure
     ( sortedRowsDyn
@@ -327,26 +334,28 @@ tableSortedRows rowsDyn = do
     )
 
 tableSortRows
-  :: forall key row.
-     ( ConstructHKD (F row) row Applied Identity
-     , HKDFieldsHave Ord (F row)
-     , IsHKD (F row) Applied Identity
-     , IsHKD (F row) Applied (Identity :*: Identity)
-     , IsHKD (F row) Applied (Dict Ord)
-     , IsHKD (F row) Applied (Dict Ord `Product` (Identity :*: Identity))
-     , IsHKD (F row) Applied TableSortConfigF
+  :: forall rowHKD hkt key row.
+     ( ConstructHKD rowHKD row hkt Identity
+     , HKDFieldsHave Ord rowHKD
+     , IsHKD rowHKD hkt ColumnSortConfig
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (Identity :*: Identity)
+     , IsHKD rowHKD hkt (Dict Ord)
+     , IsHKD rowHKD hkt (Dict Ord `Product` (Identity :*: Identity))
      )
-  => TableSortConfig row
+  => TableSortConfig rowHKD
   -> Map key row
   -> Map Int (key, row)
 tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
   where
+    sortedRowsList :: [(key, row)]
     sortedRowsList = case isSortActive of
       True -> List.sortBy sorter rowsList
       False -> rowsList
     --
+    isSortActive :: Bool
     isSortActive =
-      or $ execWriter $ traverseF
+      or $ execWriter $ traverseHKD @rowHKD @hkt
         ( \columnConfig -> do
             case columnConfig of
               Const (Just _) -> tell [True]
@@ -355,10 +364,12 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
         )
         sortConfig
     --
+    sorter :: (key, row) -> (key, row) -> Ordering
     sorter (_, a) (_, b) = mconcat orderings
       where
+        orderings :: [Ordering]
         orderings =
-          execWriter $ bitraverseF
+          execWriter $ bitraverseHKD @rowHKD @hkt
             ( \columnConfig (Pair Dict (colA :*: colB)) -> do
                 case columnConfig of
                   Const (Just direction) ->
@@ -371,13 +382,18 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
             sortConfig
             zippedAB
         --
+        zippedAB :: rowHKD (Dict Ord `Product` (Identity :*: Identity))
         zippedAB =
-            withConstrainedFieldsHKD @Ord @(F row) @Applied
-          $ zipF (:*:) hkA hkB
+            withConstrainedFieldsHKD @Ord @rowHKD @hkt
+          $ zipHKD @rowHKD @hkt (:*:) hkA hkB
         --
-        hkA = F (Identity a)
-        hkB = F (Identity b)
+        hkA :: rowHKD Identity
+        hkA = HKD @rowHKD @row @hkt (Identity a)
+        --
+        hkB :: rowHKD Identity
+        hkB = HKD @rowHKD @row @hkt (Identity b)
     --
+    rowsList :: [(key, row)]
     rowsList = Map.toList rowsMap
 
 
