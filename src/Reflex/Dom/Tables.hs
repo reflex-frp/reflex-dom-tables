@@ -120,7 +120,7 @@ data Table key row th td t m = Table
   , table_trs :: Map key (El t m, [(El t m, td)])
   }
 
-tableDyn
+elTable
   :: forall key row th td t m.
      ( DomBuilder t m
      , PostBuild t m
@@ -132,7 +132,7 @@ tableDyn
   => Dynamic t (Map key row)
   -> TableConfig key (Dynamic t row) th td t m
   -> m (Dynamic t (Table key row th td t m))
-tableDyn rows cfg = do
+elTable rows cfg = do
   let columns = tableConfig_columns cfg
       headerRows = getTHRows columns
       cols = getTDs columns
