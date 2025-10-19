@@ -86,9 +86,7 @@ library
     build-depends:    base
                     , containers
                     , data-default
-                    , indexed-traversable
                     , higher-kinded
-                    , higher-kinded-data
                     , mtl
                     , reflex-dom
                     , reflex-dom-attrs
