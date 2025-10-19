@@ -386,8 +386,8 @@ type TableFilterConfig key columns = columns |> TableFilterConfigF key columns
 type TableFilterConfigF key columns = Maybe `Compose` TableFilterPredicate key columns
 
 data TableFilterPredicate key columns a
-  = TableFilterPredicate_Any (key -> columns -> a -> Bool)
-  | TableFilterPredicate_All (key -> columns -> a -> Bool)
+  = TableFilterPredicate_Some (key -> columns -> a -> Bool)
+  | TableFilterPredicate_Many (key -> columns -> a -> Bool)
 
 tableFilteredRows
   :: forall key row t m.
@@ -447,17 +447,17 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         filterConfig
     --
     filterer key x =
-        case (getAny <$> anyM, getAll <$> allM) of
-          (Just anys, Just alls) -> anys && alls
-          (Just anys, _) -> anys
-          (_, Just alls) -> alls
+        case (getAny <$> someM, getAll <$> manyM) of
+          (Just somes, Just manys) -> somes && manys
+          (Just somes, _) -> somes
+          (_, Just manys) -> manys
           _ -> True
       where
-        (anyM, allM) = execWriter $ bitraverseF
+        (someM, manyM) = execWriter $ bitraverseF
           ( \columnConfig (Identity colX) -> do
               case columnConfig of
-                Compose (Just (TableFilterPredicate_Any f)) -> tell (Just $ Any $ f key x colX, Nothing)
-                Compose (Just (TableFilterPredicate_All f)) -> tell (Nothing, Just $ All $ f key x colX)
+                Compose (Just (TableFilterPredicate_Some f)) -> tell (Just $ Any $ f key x colX, Nothing)
+                Compose (Just (TableFilterPredicate_Many f)) -> tell (Nothing, Just $ All $ f key x colX)
                 _ -> pure ()
               pure (Identity colX)
           )
