@@ -33,7 +33,6 @@ import Data.Semigroup (Any(..), All(..))
 import Data.Traversable
 import GHC.Generics ((:*:)(..))
 import HigherKinded
-import HigherKinded.HKD.Base
 import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
@@ -398,37 +397,44 @@ tableSortRows sortConfig rowsMap = Map.fromAscList $ zip [0..] sortedRowsList
 
 
 
-type TableFilterConfig key columns = columns |> TableFilterConfigF key columns
-type TableFilterConfigF key columns = Maybe `Compose` TableFilterPredicate key columns
+type TableFilterConfig columnsHKD key columns = columnsHKD (ColumnFilterConfig key columns)
+type ColumnFilterConfig key columns = Maybe `Compose` ColumnFilterPredicate key columns
 
-data TableFilterPredicate key columns a
-  = TableFilterPredicate_Some (key -> columns -> a -> Bool)
-  | TableFilterPredicate_Many (key -> columns -> a -> Bool)
+data ColumnFilterPredicate key columns a
+  = ColumnFilterPredicate_Some (key -> columns -> a -> Bool)
+  | ColumnFilterPredicate_Many (key -> columns -> a -> Bool)
 
 tableFilteredRows
-  :: forall key row t m.
+  :: forall rowHKD hkt key row t m.
      ( MonadHold t m
      , MonadFix m
      , TriggerEvent t m
      , PerformEvent t m
      --
-     , ConstructHKD (F row) row Applied Identity
-     , IsHKD (F row) Applied Identity
-     , IsHKD (F row) Applied (TableFilterConfigF key row)
+     , ConstructHKD rowHKD row hkt Identity
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (ColumnFilterConfig key row)
      )
   => Dynamic t (Map key row)
   -> m
       ( Dynamic t (Map key row)
-      , ( Dynamic t (TableFilterConfig key row)
-        , (TableFilterConfig key row -> TableFilterConfig key row) -> IO ()
+      , ( Dynamic t (TableFilterConfig rowHKD key row)
+        , (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row) -> IO ()
         )
       )
 tableFilteredRows rowsDyn = do
-  (triggerFilterEv, triggerFilter) <- newTriggerEvent
+  (triggerFilterEv, triggerFilter)
+    :: ( Event t (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row)
+       , (TableFilterConfig rowHKD key row -> TableFilterConfig rowHKD key row) -> IO ()
+       )
+    <- newTriggerEvent
 
-  filterConfigDyn <- foldDyn ($) (pureF $ Compose Nothing) triggerFilterEv
+  filterConfigDyn
+    :: Dynamic t (TableFilterConfig rowHKD key row)
+    <- foldDyn ($) (pureHKD @rowHKD @hkt $ Compose Nothing) triggerFilterEv
 
-  let filteredRowsDyn = tableFilterRows <$> filterConfigDyn <*> rowsDyn
+  let filteredRowsDyn :: Dynamic t (Map key row)
+      filteredRowsDyn = tableFilterRows @rowHKD @hkt <$> filterConfigDyn <*> rowsDyn
 
   pure
     ( filteredRowsDyn
@@ -438,12 +444,12 @@ tableFilteredRows rowsDyn = do
     )
 
 tableFilterRows
-  :: forall key row.
-     ( ConstructHKD (F row) row Applied Identity
-     , IsHKD (F row) Applied Identity
-     , IsHKD (F row) Applied (TableFilterConfigF key row)
+  :: forall rowHKD hkt key row.
+     ( ConstructHKD rowHKD row hkt Identity
+     , IsHKD rowHKD hkt Identity
+     , IsHKD rowHKD hkt (ColumnFilterConfig key row)
      )
-  => TableFilterConfig key row
+  => TableFilterConfig rowHKD key row
   -> Map key row
   -> Map key row
 tableFilterRows filterConfig rowsMap = filteredRowsMap
@@ -453,7 +459,7 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
       False -> rowsMap
     --
     isFilterActive =
-      getAny $ execWriter $ traverseF
+      getAny $ execWriter $ traverseHKD @rowHKD @hkt
         ( \columnConfig -> do
             case columnConfig of
               Compose (Just _) -> tell $ Any True
@@ -462,6 +468,7 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
         )
         filterConfig
     --
+    filterer :: key -> row -> Bool
     filterer key x =
         case (getAny <$> someM, getAll <$> manyM) of
           (Just somes, Just manys) -> somes && manys
@@ -469,15 +476,18 @@ tableFilterRows filterConfig rowsMap = filteredRowsMap
           (_, Just manys) -> manys
           _ -> True
       where
-        (someM, manyM) = execWriter $ bitraverseF
-          ( \columnConfig (Identity colX) -> do
-              case columnConfig of
-                Compose (Just (TableFilterPredicate_Some f)) -> tell (Just $ Any $ f key x colX, Nothing)
-                Compose (Just (TableFilterPredicate_Many f)) -> tell (Nothing, Just $ All $ f key x colX)
-                _ -> pure ()
-              pure (Identity colX)
-          )
-          filterConfig
-          hkX
-        hkX = F (Identity x)
+        (someM :: Maybe Any, manyM :: Maybe All) =
+          execWriter $ bitraverseHKD @rowHKD @hkt
+            ( \columnConfig (Identity colX) -> do
+                case columnConfig of
+                  Compose (Just (ColumnFilterPredicate_Some f)) -> tell (Just $ Any $ f key x colX, Nothing)
+                  Compose (Just (ColumnFilterPredicate_Many f)) -> tell (Nothing, Just $ All $ f key x colX)
+                  _ -> pure ()
+                pure (Identity colX)
+            )
+            filterConfig
+            hkX
+        --
+        hkX :: rowHKD Identity
+        hkX = HKD @rowHKD @row @hkt (Identity x)
 
