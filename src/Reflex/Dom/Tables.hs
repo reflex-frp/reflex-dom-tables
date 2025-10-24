@@ -35,11 +35,11 @@ import HigherKinded
 import Reflex.Dom hiding (Attrs, El)
 import Reflex.Dom.Attrs
 
-import Reflex.Dom.Tables.Internal
-
 #if !MIN_VERSION_base(4,18,0)
 import Control.Applicative (liftA2)
 #endif
+
+import Reflex.Dom.Tables.Internal
 
 --
 -- | Table configuration
